@@ -5,14 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
+  ScrollView,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
-import { db, Sale } from "@/lib/db";
+import { db, Sale, Expense } from "@/lib/db";
 
 type FilterType = "Today" | "Week" | "Month";
 type SortMode = "REVENUE" | "PROFIT" | "COUNT";
+type ViewMode = "SALES" | "EXPENSES";
 
 interface GroupedSale {
   name: string;
@@ -22,53 +24,87 @@ interface GroupedSale {
   transactions: Sale[];
 }
 
+interface GroupedExpense {
+  type: string;
+  total: number;
+  count: number;
+  entries: Expense[];
+}
+
 export default function Analytics() {
   const [filter, setFilter] = useState<FilterType>("Today");
-  const [stats, setStats] = useState({ revenue: 0, profit: 0, count: 0 });
+  const [viewMode, setViewMode] = useState<ViewMode>("SALES");
+  const [stats, setStats] = useState({
+    revenue: 0,
+    grossProfit: 0,
+    totalExpenses: 0,
+    netProfit: 0,
+    salesCount: 0,
+  });
   const [groupedSales, setGroupedSales] = useState<Record<string, GroupedSale>>({});
-  const [expandedBook, setExpandedBook] = useState<string | null>(null);
+  const [groupedExpenses, setGroupedExpenses] = useState<Record<string, GroupedExpense>>({});
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortMode>("REVENUE");
 
-  const loadData = useCallback(async () => {
+  const getFromDate = (f: FilterType): Date => {
     const now = new Date();
-    let fromDate = new Date();
-
-    if (filter === "Today") {
+    const fromDate = new Date();
+    if (f === "Today") {
       fromDate.setHours(0, 0, 0, 0);
-    } else if (filter === "Week") {
+    } else if (f === "Week") {
       const day = now.getDay() || 7;
       if (day !== 1) fromDate.setHours(-24 * (day - 1));
       else fromDate.setHours(0, 0, 0, 0);
-    } else if (filter === "Month") {
+    } else if (f === "Month") {
       fromDate.setDate(1);
       fromDate.setHours(0, 0, 0, 0);
     }
+    return fromDate;
+  };
 
-    const data = await db.getSalesFromDate(fromDate.toISOString());
+  const loadData = useCallback(async () => {
+    const fromDate = getFromDate(filter);
 
-    const totalRevenue = data.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
-    const totalProfit = data.reduce((acc, curr) => acc + (curr.profit || 0), 0);
+    const salesData = await db.getSalesFromDate(fromDate.toISOString());
+    const expenseData = await db.getExpensesFromDate(fromDate.toISOString());
 
-    setStats({ revenue: totalRevenue, profit: totalProfit, count: data.length });
+    const totalRevenue = salesData.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
+    const grossProfit = salesData.reduce((acc, curr) => acc + (curr.profit || 0), 0);
+    const totalExpenses = expenseData.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    const netProfit = grossProfit - totalExpenses;
 
-    const groups: Record<string, GroupedSale> = {};
-    data.forEach((sale) => {
-      const name = sale.bookName || "Unknown Book";
-      if (!groups[name]) {
-        groups[name] = {
-          name,
-          totalQty: 0,
-          totalRevenue: 0,
-          totalProfit: 0,
-          transactions: [],
-        };
-      }
-      groups[name].totalQty += sale.qty || 0;
-      groups[name].totalRevenue += sale.totalAmount || 0;
-      groups[name].totalProfit += sale.profit || 0;
-      groups[name].transactions.push(sale);
+    setStats({
+      revenue: totalRevenue,
+      grossProfit,
+      totalExpenses,
+      netProfit,
+      salesCount: salesData.length,
     });
-    setGroupedSales(groups);
+
+    const sGroups: Record<string, GroupedSale> = {};
+    salesData.forEach((sale) => {
+      const name = sale.bookName || "Unknown Book";
+      if (!sGroups[name]) {
+        sGroups[name] = { name, totalQty: 0, totalRevenue: 0, totalProfit: 0, transactions: [] };
+      }
+      sGroups[name].totalQty += sale.qty || 0;
+      sGroups[name].totalRevenue += sale.totalAmount || 0;
+      sGroups[name].totalProfit += sale.profit || 0;
+      sGroups[name].transactions.push(sale);
+    });
+    setGroupedSales(sGroups);
+
+    const eGroups: Record<string, GroupedExpense> = {};
+    expenseData.forEach((exp) => {
+      const type = exp.type || "Misc";
+      if (!eGroups[type]) {
+        eGroups[type] = { type, total: 0, count: 0, entries: [] };
+      }
+      eGroups[type].total += exp.amount || 0;
+      eGroups[type].count++;
+      eGroups[type].entries.push(exp);
+    });
+    setGroupedExpenses(eGroups);
   }, [filter]);
 
   useFocusEffect(
@@ -77,27 +113,33 @@ export default function Analytics() {
     }, [loadData])
   );
 
-  const toggleExpand = (bookName: string) => {
-    setExpandedBook(expandedBook === bookName ? null : bookName);
+  const toggleExpand = (key: string) => {
+    setExpandedItem(expandedItem === key ? null : key);
   };
 
-  const getSortedGroups = (): GroupedSale[] => {
+  const getSortedSales = (): GroupedSale[] => {
     const list = Object.values(groupedSales);
     switch (sortBy) {
-      case "REVENUE":
-        return list.sort((a, b) => b.totalRevenue - a.totalRevenue);
-      case "PROFIT":
-        return list.sort((a, b) => b.totalProfit - a.totalProfit);
-      case "COUNT":
-        return list.sort((a, b) => b.totalQty - a.totalQty);
-      default:
-        return list;
+      case "REVENUE": return list.sort((a, b) => b.totalRevenue - a.totalRevenue);
+      case "PROFIT": return list.sort((a, b) => b.totalProfit - a.totalProfit);
+      case "COUNT": return list.sort((a, b) => b.totalQty - a.totalQty);
+      default: return list;
     }
   };
 
-  const renderBookGroup = ({ item }: { item: GroupedSale }) => {
-    const isExpanded = expandedBook === item.name;
+  const getSortedExpenses = (): GroupedExpense[] => {
+    return Object.values(groupedExpenses).sort((a, b) => b.total - a.total);
+  };
 
+  const formatCurrency = (val: number) =>
+    `₹${val.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+
+  const profitMargin = stats.revenue > 0
+    ? ((stats.netProfit / stats.revenue) * 100).toFixed(1)
+    : "0.0";
+
+  const renderSalesGroup = ({ item }: { item: GroupedSale }) => {
+    const isExpanded = expandedItem === item.name;
     return (
       <View style={styles.groupContainer}>
         <TouchableOpacity
@@ -110,30 +152,18 @@ export default function Analytics() {
             <Text style={styles.groupSub}>{item.totalQty} sold</Text>
           </View>
           <View style={{ alignItems: "flex-end", marginRight: 8 }}>
-            <Text style={styles.groupAmount}>
-              ₹{(item.totalRevenue || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-            </Text>
-            <Text style={styles.groupProfit}>
-              +₹{(item.totalProfit || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })} Profit
-            </Text>
+            <Text style={styles.groupAmount}>{formatCurrency(item.totalRevenue)}</Text>
+            <Text style={styles.groupProfit}>+{formatCurrency(item.totalProfit)} Profit</Text>
           </View>
-          <Feather
-            name={isExpanded ? "chevron-up" : "chevron-down"}
-            size={18}
-            color={Colors.textTertiary}
-          />
+          <Feather name={isExpanded ? "chevron-up" : "chevron-down"} size={18} color={Colors.textTertiary} />
         </TouchableOpacity>
-
         {isExpanded && (
           <View style={styles.transactionsList}>
             {item.transactions.map((t, index) => (
               <View key={t.id || index} style={styles.transactionRow}>
                 <Text style={styles.tDate}>
-                  {new Date(t.date).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  , {new Date(t.date).toLocaleDateString()}
+                  {new Date(t.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })},{" "}
+                  {new Date(t.date).toLocaleDateString()}
                 </Text>
                 <View style={styles.tDetails}>
                   <Text style={styles.tQty}>Qty: {t.qty}</Text>
@@ -147,65 +177,153 @@ export default function Analytics() {
     );
   };
 
+  const getCategoryColor = (type: string): string => {
+    const map: Record<string, string> = {
+      Food: "#E67E22", Rent: "#9B59B6", Fuel: "#E74C3C",
+      Utilities: "#3498DB", Stationery: "#1ABC9C", Transport: "#F39C12",
+    };
+    return map[type] || Colors.textSecondary;
+  };
+
+  const renderExpenseGroup = ({ item }: { item: GroupedExpense }) => {
+    const isExpanded = expandedItem === `exp_${item.type}`;
+    const color = getCategoryColor(item.type);
+    return (
+      <View style={[styles.groupContainer, { borderLeftColor: color, borderLeftWidth: 3 }]}>
+        <TouchableOpacity
+          style={styles.groupHeader}
+          onPress={() => toggleExpand(`exp_${item.type}`)}
+          activeOpacity={0.7}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.groupTitle}>{item.type}</Text>
+            <Text style={styles.groupSub}>{item.count} entries</Text>
+          </View>
+          <View style={{ alignItems: "flex-end", marginRight: 8 }}>
+            <Text style={[styles.groupAmount, { color: Colors.danger }]}>
+              -{formatCurrency(item.total)}
+            </Text>
+          </View>
+          <Feather name={isExpanded ? "chevron-up" : "chevron-down"} size={18} color={Colors.textTertiary} />
+        </TouchableOpacity>
+        {isExpanded && (
+          <View style={styles.transactionsList}>
+            {item.entries.map((e, index) => (
+              <View key={e.id || index} style={styles.transactionRow}>
+                <View>
+                  <Text style={styles.tDate}>
+                    {new Date(e.date).toLocaleDateString()}{" "}
+                    {new Date(e.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </Text>
+                  {e.description ? <Text style={styles.tQty}>{e.description}</Text> : null}
+                </View>
+                <Text style={[styles.tPrice, { color: Colors.danger }]}>-₹{e.amount}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.tabContainer}>
-        {(["Today", "Week", "Month"] as FilterType[]).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tab, filter === t && styles.activeTab]}
-            onPress={() => setFilter(t)}
-          >
-            <Text style={[styles.tabText, filter === t && styles.activeTabText]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={styles.statsContainer}>
-        <View style={[styles.statCard, { borderLeftColor: Colors.blue }]}>
-          <Text style={styles.statLabel}>Revenue</Text>
-          <Text style={[styles.statValue, { color: Colors.blue }]}>
-            ₹{stats.revenue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-          </Text>
-        </View>
-        <View style={[styles.statCard, { borderLeftColor: Colors.success }]}>
-          <Text style={styles.statLabel}>Profit</Text>
-          <Text style={[styles.statValue, { color: Colors.success }]}>
-            ₹{stats.profit.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-          </Text>
-        </View>
-        <View style={[styles.statCard, { borderLeftColor: Colors.warning }]}>
-          <Text style={styles.statLabel}>Sales</Text>
-          <Text style={[styles.statValue, { color: Colors.warning }]}>{stats.count}</Text>
-        </View>
-      </View>
-
-      <View style={styles.sortRow}>
-        <Text style={styles.sortLabel}>Sort by:</Text>
-        {(["REVENUE", "PROFIT", "COUNT"] as SortMode[]).map((s) => (
-          <TouchableOpacity
-            key={s}
-            style={[styles.chip, sortBy === s && styles.chipActive]}
-            onPress={() => setSortBy(s)}
-          >
-            <Text style={[styles.chipText, sortBy === s && styles.chipTextActive]}>
-              {s.charAt(0) + s.slice(1).toLowerCase()}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.sectionHeader}>Performance by Book</Text>
-
       <FlatList
-        data={getSortedGroups()}
-        keyExtractor={(item) => item.name}
-        renderItem={renderBookGroup}
+        data={viewMode === "SALES" ? getSortedSales() : getSortedExpenses()}
+        keyExtractor={(item) => ("name" in item ? item.name : (item as GroupedExpense).type)}
+        renderItem={viewMode === "SALES" ? renderSalesGroup : (renderExpenseGroup as any)}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <>
+            <View style={styles.tabContainer}>
+              {(["Today", "Week", "Month"] as FilterType[]).map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.tab, filter === t && styles.activeTab]}
+                  onPress={() => setFilter(t)}
+                >
+                  <Text style={[styles.tabText, filter === t && styles.activeTabText]}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.statsGrid}>
+              <View style={[styles.statCard, { borderLeftColor: Colors.blue }]}>
+                <Text style={styles.statLabel}>Revenue</Text>
+                <Text style={[styles.statValue, { color: Colors.blue }]}>{formatCurrency(stats.revenue)}</Text>
+              </View>
+              <View style={[styles.statCard, { borderLeftColor: Colors.success }]}>
+                <Text style={styles.statLabel}>Gross Profit</Text>
+                <Text style={[styles.statValue, { color: Colors.success }]}>{formatCurrency(stats.grossProfit)}</Text>
+              </View>
+            </View>
+            <View style={styles.statsGrid}>
+              <View style={[styles.statCard, { borderLeftColor: Colors.danger }]}>
+                <Text style={styles.statLabel}>Expenses</Text>
+                <Text style={[styles.statValue, { color: Colors.danger }]}>{formatCurrency(stats.totalExpenses)}</Text>
+              </View>
+              <View style={[styles.statCard, { borderLeftColor: stats.netProfit >= 0 ? Colors.success : Colors.danger }]}>
+                <Text style={styles.statLabel}>Net Profit</Text>
+                <Text style={[styles.statValue, { color: stats.netProfit >= 0 ? Colors.success : Colors.danger }]}>
+                  {formatCurrency(stats.netProfit)}
+                </Text>
+                <Text style={styles.statSub}>{profitMargin}% margin</Text>
+              </View>
+            </View>
+
+            <View style={styles.viewToggle}>
+              <TouchableOpacity
+                style={[styles.toggleBtn, viewMode === "SALES" && styles.toggleBtnActive]}
+                onPress={() => { setViewMode("SALES"); setExpandedItem(null); }}
+              >
+                <Ionicons name="cart-outline" size={16} color={viewMode === "SALES" ? Colors.white : Colors.textSecondary} />
+                <Text style={[styles.toggleText, viewMode === "SALES" && styles.toggleTextActive]}>
+                  Sales ({stats.salesCount})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleBtn, viewMode === "EXPENSES" && styles.toggleBtnActive]}
+                onPress={() => { setViewMode("EXPENSES"); setExpandedItem(null); }}
+              >
+                <MaterialCommunityIcons name="wallet-outline" size={16} color={viewMode === "EXPENSES" ? Colors.white : Colors.textSecondary} />
+                <Text style={[styles.toggleText, viewMode === "EXPENSES" && styles.toggleTextActive]}>
+                  Expenses ({Object.values(groupedExpenses).reduce((s, g) => s + g.count, 0)})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {viewMode === "SALES" && (
+              <View style={styles.sortRow}>
+                <Text style={styles.sortLabel}>Sort by:</Text>
+                {(["REVENUE", "PROFIT", "COUNT"] as SortMode[]).map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.chip, sortBy === s && styles.chipActive]}
+                    onPress={() => setSortBy(s)}
+                  >
+                    <Text style={[styles.chipText, sortBy === s && styles.chipTextActive]}>
+                      {s.charAt(0) + s.slice(1).toLowerCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <Text style={styles.sectionHeader}>
+              {viewMode === "SALES" ? "Performance by Book" : "Expenses by Category"}
+            </Text>
+          </>
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="receipt-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyText}>No sales in this period</Text>
+            <Ionicons
+              name={viewMode === "SALES" ? "receipt-outline" : "wallet-outline"}
+              size={48}
+              color={Colors.textTertiary}
+            />
+            <Text style={styles.emptyText}>
+              No {viewMode === "SALES" ? "sales" : "expenses"} in this period
+            </Text>
           </View>
         }
       />
@@ -219,6 +337,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: Colors.surface,
     margin: 16,
+    marginBottom: 12,
     borderRadius: 12,
     padding: 4,
     shadowColor: "#000",
@@ -243,12 +362,11 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontFamily: "Inter_600SemiBold",
   },
-  statsContainer: {
+  statsGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    marginBottom: 16,
     gap: 8,
+    marginBottom: 8,
   },
   statCard: {
     flex: 1,
@@ -272,6 +390,42 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     fontFamily: "Inter_700Bold",
+  },
+  statSub: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  viewToggle: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    backgroundColor: Colors.surfaceSecondary,
+    borderRadius: 12,
+    padding: 4,
+  },
+  toggleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  toggleBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  toggleText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: Colors.textSecondary,
+  },
+  toggleTextActive: {
+    color: Colors.white,
+    fontFamily: "Inter_600SemiBold",
   },
   sortRow: {
     flexDirection: "row",
@@ -313,10 +467,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: Colors.text,
   },
-  list: { paddingHorizontal: 16, paddingBottom: 24 },
+  list: { paddingBottom: 24 },
   groupContainer: {
     backgroundColor: Colors.surface,
     borderRadius: 14,
+    marginHorizontal: 16,
     marginBottom: 10,
     overflow: "hidden",
     shadowColor: "#000",
@@ -360,6 +515,7 @@ const styles = StyleSheet.create({
   transactionRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderBottomWidth: 1,

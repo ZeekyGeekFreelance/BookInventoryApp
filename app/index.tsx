@@ -19,7 +19,13 @@ export default function Dashboard() {
     totalStock: 0,
     stockValue: 0,
     totalSales: 0,
+    grossProfit: 0,
+    totalExpenses: 0,
     netProfit: 0,
+    totalBooks: 0,
+    lowStockCount: 0,
+    profitMargin: 0,
+    totalTransactions: 0,
   });
   const [refreshing, setRefreshing] = useState(false);
   const insets = useSafeAreaInsets();
@@ -71,23 +77,42 @@ export default function Dashboard() {
           <Text style={[styles.statValue, { color: Colors.blue }]}>
             {formatCurrency(stats.stockValue)}
           </Text>
-          <Text style={styles.statSub}>{stats.totalStock} books</Text>
+          <Text style={styles.statSub}>{stats.totalStock} books in {stats.totalBooks} titles</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.statCard, { borderLeftColor: Colors.success }]}
+          style={[styles.statCard, { borderLeftColor: stats.netProfit >= 0 ? Colors.success : Colors.danger }]}
           onPress={() => router.push({ pathname: "/stats-detail", params: { type: "PROFIT" } })}
           activeOpacity={0.7}
         >
-          <View style={[styles.statIconWrap, { backgroundColor: Colors.successLight }]}>
-            <Ionicons name="trending-up" size={20} color={Colors.success} />
+          <View style={[styles.statIconWrap, { backgroundColor: stats.netProfit >= 0 ? Colors.successLight : Colors.dangerLight }]}>
+            <Ionicons name="trending-up" size={20} color={stats.netProfit >= 0 ? Colors.success : Colors.danger} />
           </View>
           <Text style={styles.statLabel}>Net Profit</Text>
-          <Text style={[styles.statValue, { color: Colors.success }]}>
+          <Text style={[styles.statValue, { color: stats.netProfit >= 0 ? Colors.success : Colors.danger }]}>
             {formatCurrency(stats.netProfit)}
           </Text>
-          <Text style={styles.statSub}>Sales: {formatCurrency(stats.totalSales)}</Text>
+          <Text style={styles.statSub}>
+            {stats.profitMargin > 0 ? `${stats.profitMargin.toFixed(1)}% margin` : "No sales yet"}
+          </Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.miniStatsRow}>
+        <View style={styles.miniStat}>
+          <Text style={styles.miniStatLabel}>Revenue</Text>
+          <Text style={[styles.miniStatValue, { color: Colors.blue }]}>{formatCurrency(stats.totalSales)}</Text>
+        </View>
+        <View style={styles.miniStatDivider} />
+        <View style={styles.miniStat}>
+          <Text style={styles.miniStatLabel}>Expenses</Text>
+          <Text style={[styles.miniStatValue, { color: Colors.danger }]}>{formatCurrency(stats.totalExpenses)}</Text>
+        </View>
+        <View style={styles.miniStatDivider} />
+        <View style={styles.miniStat}>
+          <Text style={styles.miniStatLabel}>Transactions</Text>
+          <Text style={[styles.miniStatValue, { color: Colors.text }]}>{stats.totalTransactions}</Text>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -101,7 +126,7 @@ export default function Dashboard() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.analyticsBtnTitle}>Detailed Analytics</Text>
-            <Text style={styles.analyticsBtnSub}>Revenue, profit & per-book performance</Text>
+            <Text style={styles.analyticsBtnSub}>Revenue, profit, expenses & per-book data</Text>
           </View>
           <Feather name="chevron-right" size={20} color={Colors.textTertiary} />
         </View>
@@ -125,6 +150,21 @@ export default function Dashboard() {
       </TouchableOpacity>
 
       <TouchableOpacity
+        style={styles.actionCard}
+        onPress={() => router.push("/expenses")}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.actionIconWrap, { backgroundColor: Colors.dangerLight }]}>
+          <MaterialCommunityIcons name="wallet-outline" size={24} color={Colors.danger} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.actionTitle}>Track Expenses</Text>
+          <Text style={styles.actionSub}>Food, rent, fuel & custom categories</Text>
+        </View>
+        <Feather name="chevron-right" size={20} color={Colors.textTertiary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
         style={[styles.actionCard, { borderLeftColor: Colors.warning, borderLeftWidth: 4 }]}
         onPress={() => router.push("/restock")}
         activeOpacity={0.7}
@@ -135,6 +175,26 @@ export default function Dashboard() {
         <View style={{ flex: 1 }}>
           <Text style={styles.actionTitle}>Restock Order</Text>
           <Text style={styles.actionSub}>Generate & share reorder list</Text>
+        </View>
+        {stats.lowStockCount > 0 && (
+          <View style={styles.lowBadge}>
+            <Text style={styles.lowBadgeText}>{stats.lowStockCount}</Text>
+          </View>
+        )}
+        <Feather name="chevron-right" size={20} color={Colors.textTertiary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.actionCard}
+        onPress={() => router.push("/data-manage")}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.actionIconWrap, { backgroundColor: Colors.accentLight }]}>
+          <Ionicons name="cloud-outline" size={24} color={Colors.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.actionTitle}>Backup & Restore</Text>
+          <Text style={styles.actionSub}>Export/import Excel data</Text>
         </View>
         <Feather name="chevron-right" size={20} color={Colors.textTertiary} />
       </TouchableOpacity>
@@ -155,7 +215,7 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   statCard: {
     flex: 1,
@@ -192,6 +252,37 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.textTertiary,
     marginTop: 4,
+  },
+  miniStatsRow: {
+    flexDirection: "row",
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  miniStat: {
+    flex: 1,
+    alignItems: "center",
+  },
+  miniStatDivider: {
+    width: 1,
+    backgroundColor: Colors.borderLight,
+  },
+  miniStatLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: Colors.textTertiary,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  miniStatValue: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
   },
   analyticsBtn: {
     backgroundColor: Colors.surface,
@@ -259,5 +350,17 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+  lowBadge: {
+    backgroundColor: Colors.dangerLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 4,
+  },
+  lowBadgeText: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    color: Colors.danger,
   },
 });

@@ -28,6 +28,8 @@ function RootLayoutNav() {
       <Stack.Screen name="restock" options={{ title: "Restock Order" }} />
       <Stack.Screen name="analytics" options={{ title: "Sales Analytics" }} />
       <Stack.Screen name="stats-detail" options={{ title: "Details" }} />
+      <Stack.Screen name="expenses" options={{ title: "Expenses" }} />
+      <Stack.Screen name="data-manage" options={{ title: "Backup & Restore" }} />
     </Stack>
   );
 }
