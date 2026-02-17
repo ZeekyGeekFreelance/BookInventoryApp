@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BOOKS_KEY = '@bookshop_books';
 const SALES_KEY = '@bookshop_sales';
+const EXPENSES_KEY = '@bookshop_expenses';
 
 export interface Book {
   id: number;
@@ -24,32 +25,71 @@ export interface Sale {
   date: string;
 }
 
+export interface Expense {
+  id: number;
+  type: string;
+  amount: number;
+  description: string;
+  date: string;
+}
+
+export const EXPENSE_CATEGORIES = [
+  'Food',
+  'Rent',
+  'Fuel',
+  'Utilities',
+  'Stationery',
+  'Transport',
+  'Misc',
+] as const;
+
 export interface DashboardStats {
   totalStock: number;
   stockValue: number;
   totalSales: number;
+  grossProfit: number;
+  totalExpenses: number;
   netProfit: number;
+  totalBooks: number;
+  lowStockCount: number;
+  profitMargin: number;
+  totalTransactions: number;
 }
 
 let nextBookId = 1;
 let nextSaleId = 1;
+let nextExpenseId = 1;
 
 async function loadIds() {
-  const books = await getBooks();
-  const sales = await getSales();
-  if (books.length > 0) {
-    nextBookId = Math.max(...books.map(b => b.id)) + 1;
-  }
-  if (sales.length > 0) {
-    nextSaleId = Math.max(...sales.map(s => s.id)) + 1;
+  try {
+    const books = await getBooks();
+    const sales = await getSales();
+    const expenses = await getExpenses();
+    if (books.length > 0) {
+      nextBookId = Math.max(...books.map(b => b.id)) + 1;
+    }
+    if (sales.length > 0) {
+      nextSaleId = Math.max(...sales.map(s => s.id)) + 1;
+    }
+    if (expenses.length > 0) {
+      nextExpenseId = Math.max(...expenses.map(e => e.id)) + 1;
+    }
+  } catch {
+    nextBookId = 1;
+    nextSaleId = 1;
+    nextExpenseId = 1;
   }
 }
 
 loadIds();
 
 async function getBooks(): Promise<Book[]> {
-  const data = await AsyncStorage.getItem(BOOKS_KEY);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = await AsyncStorage.getItem(BOOKS_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function saveBooks(books: Book[]): Promise<void> {
@@ -57,12 +97,29 @@ async function saveBooks(books: Book[]): Promise<void> {
 }
 
 async function getSales(): Promise<Sale[]> {
-  const data = await AsyncStorage.getItem(SALES_KEY);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = await AsyncStorage.getItem(SALES_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function saveSales(sales: Sale[]): Promise<void> {
   await AsyncStorage.setItem(SALES_KEY, JSON.stringify(sales));
+}
+
+async function getExpenses(): Promise<Expense[]> {
+  try {
+    const data = await AsyncStorage.getItem(EXPENSES_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveExpenses(expenses: Expense[]): Promise<void> {
+  await AsyncStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
 }
 
 export const db = {
@@ -138,16 +195,67 @@ export const db = {
     await this.updateStock(bookId, -qty);
   },
 
+  async getAllExpenses(): Promise<Expense[]> {
+    const expenses = await getExpenses();
+    return expenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  },
+
+  async addExpense(expense: Omit<Expense, 'id'>): Promise<Expense> {
+    const expenses = await getExpenses();
+    const newExpense: Expense = { ...expense, id: nextExpenseId++ };
+    expenses.push(newExpense);
+    await saveExpenses(expenses);
+    return newExpense;
+  },
+
+  async updateExpense(expense: Expense): Promise<void> {
+    const expenses = await getExpenses();
+    const idx = expenses.findIndex(e => e.id === expense.id);
+    if (idx !== -1) {
+      expenses[idx] = expense;
+      await saveExpenses(expenses);
+    }
+  },
+
+  async deleteExpense(id: number): Promise<void> {
+    const expenses = await getExpenses();
+    await saveExpenses(expenses.filter(e => e.id !== id));
+  },
+
+  async getExpensesFromDate(fromDate: string): Promise<Expense[]> {
+    const expenses = await getExpenses();
+    const from = new Date(fromDate).getTime();
+    return expenses
+      .filter(e => new Date(e.date).getTime() >= from)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  },
+
   async getDashboardStats(): Promise<DashboardStats> {
     const books = await getBooks();
     const sales = await getSales();
+    const expenses = await getExpenses();
 
     const totalStock = books.reduce((acc, b) => acc + b.stock, 0);
     const stockValue = books.reduce((acc, b) => acc + (b.stock * b.costPrice), 0);
     const totalSales = sales.reduce((acc, s) => acc + s.totalAmount, 0);
-    const netProfit = sales.reduce((acc, s) => acc + s.profit, 0);
+    const grossProfit = sales.reduce((acc, s) => acc + s.profit, 0);
+    const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0);
+    const netProfit = grossProfit - totalExpenses;
+    const lowStockCount = books.filter(b => b.stock <= (b.targetStock || 3) || b.stock === 0).length;
+    const profitMargin = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
-    return { totalStock, stockValue, totalSales, netProfit };
+    return {
+      totalStock,
+      stockValue,
+      totalSales,
+      grossProfit,
+      totalExpenses,
+      netProfit,
+      totalBooks: books.length,
+      lowStockCount,
+      profitMargin,
+      totalTransactions: sales.length,
+    };
   },
 
   async getStockValueBreakdown(): Promise<(Book & { totalValue: number })[]> {
@@ -176,10 +284,45 @@ export const db = {
     return books.filter(b => b.stock <= (b.targetStock || 3) || b.stock === 0);
   },
 
+  async getRawData(): Promise<{ books: Book[]; sales: Sale[]; expenses: Expense[] }> {
+    const books = await getBooks();
+    const sales = await getSales();
+    const expenses = await getExpenses();
+    return { books, sales, expenses };
+  },
+
+  async hasExistingData(): Promise<boolean> {
+    const books = await getBooks();
+    const sales = await getSales();
+    const expenses = await getExpenses();
+    return books.length > 0 || sales.length > 0 || expenses.length > 0;
+  },
+
+  async clearAllData(): Promise<void> {
+    await AsyncStorage.multiSet([
+      [BOOKS_KEY, '[]'],
+      [SALES_KEY, '[]'],
+      [EXPENSES_KEY, '[]'],
+    ]);
+    nextBookId = 1;
+    nextSaleId = 1;
+    nextExpenseId = 1;
+  },
+
+  async restoreData(data: { books: Book[]; sales: Sale[]; expenses: Expense[] }): Promise<void> {
+    await AsyncStorage.multiSet([
+      [BOOKS_KEY, JSON.stringify(data.books || [])],
+      [SALES_KEY, JSON.stringify(data.sales || [])],
+      [EXPENSES_KEY, JSON.stringify(data.expenses || [])],
+    ]);
+    await loadIds();
+  },
+
   async exportData(): Promise<string> {
     const books = await getBooks();
     const sales = await getSales();
-    return JSON.stringify({ books, sales, timestamp: new Date().toISOString() }, null, 2);
+    const expenses = await getExpenses();
+    return JSON.stringify({ books, sales, expenses, timestamp: new Date().toISOString() }, null, 2);
   },
 
   async importData(jsonStr: string): Promise<void> {
@@ -189,6 +332,9 @@ export const db = {
     }
     await saveBooks(data.books);
     await saveSales(data.sales);
+    if (data.expenses) {
+      await saveExpenses(data.expenses);
+    }
     await loadIds();
   },
 };
