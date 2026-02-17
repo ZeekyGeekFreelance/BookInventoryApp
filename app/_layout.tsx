@@ -43,20 +43,23 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    console.log("RootLayout: fontsLoaded =", fontsLoaded);
     if (fontsLoaded) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(err => console.log("Splash hide error:", err));
     }
   }, [fontsLoaded]);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) {
+    console.log("RootLayout: Waiting for fonts...");
+    return null;
+  }
 
+  console.log("RootLayout: Rendering Providers");
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GestureHandlerRootView>
-          <KeyboardProvider>
-            <RootLayoutNav />
-          </KeyboardProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <RootLayoutNav />
         </GestureHandlerRootView>
       </QueryClientProvider>
     </ErrorBoundary>

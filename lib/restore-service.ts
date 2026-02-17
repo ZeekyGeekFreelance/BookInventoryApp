@@ -1,5 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import { db, Book, Sale, Expense } from './db';
 
@@ -9,6 +9,7 @@ export interface RestoreResult {
     books: { added: number };
     sales: { added: number };
     expenses: { added: number };
+    restocks: { added: number };
   };
   errors: string[];
   message: string;
@@ -68,7 +69,13 @@ function validateSaleRow(row: any, index: number, errors: string[]): Sale | null
     return null;
   }
 
-  const date = String(row.date || '');
+  // Handle split columns or legacy single column
+  let date = String(row.date || row.Date || '');
+  const time = String(row.time || row.Time || '');
+  if (date && time && !row.date) {
+    date = `${date}T${time}`;
+  }
+
   if (!isValidDate(date)) {
     errors.push(`Sales row ${index + 1}: Invalid date "${date}"`);
     return null;
@@ -81,7 +88,7 @@ function validateSaleRow(row: any, index: number, errors: string[]): Sale | null
     qty: Math.max(0, parseInt(row.qty) || 0),
     totalAmount: Math.max(0, Number(row.totalAmount) || 0),
     profit: Number(row.profit) || 0,
-    date,
+    date: new Date(date).toISOString(),
   };
 }
 
@@ -98,7 +105,12 @@ function validateExpenseRow(row: any, index: number, errors: string[]): Expense 
     return null;
   }
 
-  const date = String(row.date || '');
+  let date = String(row.date || row.Date || '');
+  const time = String(row.time || row.Time || '');
+  if (date && time && !row.date) {
+    date = `${date}T${time}`;
+  }
+
   if (!isValidDate(date)) {
     errors.push(`Expenses row ${index + 1}: Invalid date "${date}"`);
     return null;
@@ -109,7 +121,34 @@ function validateExpenseRow(row: any, index: number, errors: string[]): Expense 
     type: String(row.type || 'Misc').trim(),
     amount,
     description: String(row.description || '').trim(),
-    date,
+    date: new Date(date).toISOString(),
+  };
+}
+
+function validateRestockRow(row: any, index: number, errors: string[]): any | null {
+  const id = parseInt(row.id);
+  if (isNaN(id) || id <= 0) {
+    errors.push(`Restocks row ${index + 1}: Invalid id`);
+    return null;
+  }
+
+  let date = String(row.date || row.Date || '');
+  const time = String(row.time || row.Time || '');
+  if (date && time && !row.date) {
+    date = `${date}T${time}`;
+  }
+
+  if (!isValidDate(date)) {
+    errors.push(`Restocks row ${index + 1}: Invalid date "${date}"`);
+    return null;
+  }
+
+  return {
+    id,
+    bookId: parseInt(row.bookId) || 0,
+    bookName: String(row.bookName || '').trim(),
+    qtyAdded: Math.max(0, parseInt(row.qtyAdded) || 0),
+    date: new Date(date).toISOString(),
   };
 }
 
@@ -139,7 +178,7 @@ export async function restoreFromExcel(fileUri: string): Promise<RestoreResult> 
 
   try {
     const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64',
     });
 
     let wb: XLSX.WorkBook;
@@ -168,10 +207,12 @@ export async function restoreFromExcel(fileUri: string): Promise<RestoreResult> 
     const booksSheetName = wb.SheetNames.find(s => s.toLowerCase() === 'books') || '';
     const salesSheetName = wb.SheetNames.find(s => s.toLowerCase() === 'sales') || '';
     const expensesSheetName = wb.SheetNames.find(s => s.toLowerCase() === 'expenses') || '';
+    const restocksSheetName = wb.SheetNames.find(s => s.toLowerCase() === 'restocks') || '';
 
     const rawBooks = booksSheetName ? parseSheetData(wb, booksSheetName) : [];
     const rawSales = salesSheetName ? parseSheetData(wb, salesSheetName) : [];
     const rawExpenses = expensesSheetName ? parseSheetData(wb, expensesSheetName) : [];
+    const rawRestocks = restocksSheetName ? parseSheetData(wb, restocksSheetName) : [];
 
     const validBooks: Book[] = [];
     const seenBookIds = new Set<number>();
@@ -203,7 +244,17 @@ export async function restoreFromExcel(fileUri: string): Promise<RestoreResult> 
       }
     });
 
-    if (validBooks.length === 0 && validSales.length === 0 && validExpenses.length === 0) {
+    const validRestocks: any[] = [];
+    const seenRestockIds = new Set<number>();
+    rawRestocks.forEach((row, i) => {
+      const restock = validateRestockRow(row, i, errors);
+      if (restock && !seenRestockIds.has(restock.id)) {
+        seenRestockIds.add(restock.id);
+        validRestocks.push(restock);
+      }
+    });
+
+    if (validBooks.length === 0 && validSales.length === 0 && validExpenses.length === 0 && validRestocks.length === 0) {
       return {
         success: false,
         errors: [...errors, 'No valid data found to restore'],
@@ -219,11 +270,12 @@ export async function restoreFromExcel(fileUri: string): Promise<RestoreResult> 
         books: validBooks,
         sales: validSales,
         expenses: validExpenses,
+        restocks: validRestocks,
       });
     } catch (restoreError: any) {
       try {
         await db.restoreData(currentData);
-      } catch {}
+      } catch { }
       return {
         success: false,
         errors: [...errors, `Restore failed: ${restoreError?.message || 'Unknown error'}`],
@@ -237,9 +289,10 @@ export async function restoreFromExcel(fileUri: string): Promise<RestoreResult> 
         books: { added: validBooks.length },
         sales: { added: validSales.length },
         expenses: { added: validExpenses.length },
+        restocks: { added: validRestocks.length },
       },
       errors,
-      message: `Restored ${validBooks.length} books, ${validSales.length} sales, ${validExpenses.length} expenses`,
+      message: `Restored ${validBooks.length} books, ${validSales.length} sales, ${validExpenses.length} expenses, ${validRestocks.length} restocks`,
     };
   } catch (error: any) {
     return {

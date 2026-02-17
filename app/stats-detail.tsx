@@ -40,6 +40,14 @@ export default function StatsDetail() {
           <Text style={styles.sub}>
             {item.stock} pcs x ₹{item.costPrice?.toFixed(2)}
           </Text>
+          {item.lastStockedAt && (
+            <View style={styles.dateLabelRow}>
+              <Ionicons name="time-outline" size={12} color={Colors.textTertiary} />
+              <Text style={styles.dateLabelText}>
+                Last Stocked: {new Date(item.lastStockedAt).toLocaleDateString()} {new Date(item.lastStockedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
+          )}
         </View>
         <View style={{ alignItems: "flex-end" }}>
           <Text style={[styles.value, { color: Colors.blue }]}>
@@ -91,7 +99,7 @@ export default function StatsDetail() {
       </View>
 
       <FlatList
-        data={type === "STOCK" ? stockData : salesData}
+        data={(type === "STOCK" ? stockData : salesData) as any[]}
         keyExtractor={(item) => item.id.toString()}
         renderItem={type === "STOCK" ? renderStockItem as any : renderSaleItem as any}
         contentContainerStyle={styles.list}
@@ -181,5 +189,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Inter_500Medium",
     color: Colors.textSecondary,
+  },
+  dateLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    gap: 4,
+  },
+  dateLabelText: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: Colors.textTertiary,
   },
 });

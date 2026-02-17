@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Book Shop Manager",
+    "name": "Reddy Books",
     "slug": "book-shop-manager",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -37,11 +37,20 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "0fa0e752-e389-4d4b-b889-80d5c415e875"
+      }
     }
   }
 }

@@ -65,7 +65,9 @@ export default function DataManage() {
           ]
         );
       } else {
-        Alert.alert("Export Failed", result.message);
+        if (!result.success) {
+          Alert.alert("Export Failed", result.message);
+        }
       }
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Export failed");
@@ -230,7 +232,7 @@ export default function DataManage() {
       <View style={styles.infoBox}>
         <MaterialCommunityIcons name="information-outline" size={18} color={Colors.blue} />
         <Text style={styles.infoText}>
-          Backups include 5 sheets: Summary, Books, Sales, Expenses, and Low Stock Report.
+          Backups include 5 sheets: Summary, Books, Sales, Expenses, and Restocks history.
           Always export a backup before clearing data.
         </Text>
       </View>
@@ -251,7 +253,7 @@ export default function DataManage() {
             setIsImporting(false);
           }}
         >
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <View style={styles.warningIconWrap}>
               <Ionicons name="warning-outline" size={36} color={Colors.warning} />
             </View>
@@ -291,7 +293,7 @@ export default function DataManage() {
         onRequestClose={() => setShowResultModal(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowResultModal(false)}>
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <View style={styles.resultIconWrap}>
               <Ionicons
                 name={restoreResult?.success ? "checkmark-circle" : "close-circle"}

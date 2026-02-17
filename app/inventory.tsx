@@ -161,9 +161,16 @@ export default function Inventory() {
 
         <View style={styles.cardFooter}>
           <View style={styles.stockContainer}>
-            <Text style={[styles.stockLabel, isLowStock && styles.lowStockText]}>
-              Stock: {item.stock}
-            </Text>
+            <View>
+              <Text style={[styles.stockLabel, isLowStock && styles.lowStockText]}>
+                Stock: {item.stock}
+              </Text>
+              {item.lastStockedAt && (
+                <Text style={styles.lastStockedText}>
+                  Last: {new Date(item.lastStockedAt).toLocaleDateString()}
+                </Text>
+              )}
+            </View>
             {isLowStock && (
               <View style={styles.lowBadge}>
                 <Text style={styles.lowBadgeText}>LOW</Text>
@@ -265,7 +272,7 @@ export default function Inventory() {
         onRequestClose={() => setIsSellModalVisible(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setIsSellModalVisible(false)}>
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <Text style={styles.modalTitle}>Sell: {selectedBook?.name}</Text>
             <View style={styles.modalRow}>
               <View style={{ flex: 1 }}>
@@ -319,7 +326,7 @@ export default function Inventory() {
         onRequestClose={() => setIsRestockModalVisible(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setIsRestockModalVisible(false)}>
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <Text style={styles.modalTitle}>Restock: {selectedBook?.name}</Text>
             <Text style={styles.inputLabel}>Quantity to Add</Text>
             <TextInput
@@ -444,6 +451,12 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: Colors.blue,
     marginTop: 8,
+  },
+  lastStockedText: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    color: Colors.textTertiary,
+    marginTop: 2,
   },
   cardFooter: {
     flexDirection: "row",

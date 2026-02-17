@@ -1,7 +1,8 @@
-import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
-import { db, Book, Sale, Expense } from './db';
+import { db } from './db';
 
 export interface BackupResult {
   success: boolean;
@@ -15,9 +16,20 @@ function formatDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
 }
 
+function formatSplitDate(isoString: string): { date: string; time: string } {
+  if (!isoString) return { date: '', time: '' };
+  const d = new Date(isoString);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+
+  const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+  return { date: dateStr, time: timeStr };
+}
+
 export async function createBackup(): Promise<BackupResult> {
   try {
-    const { books, sales, expenses } = await db.getRawData();
+    const { books, sales, expenses, restocks } = await db.getRawData();
     const stats = await db.getDashboardStats();
     const lowStockBooks = await db.getLowStockBooks();
 
@@ -52,19 +64,25 @@ export async function createBackup(): Promise<BackupResult> {
     booksWs['!cols'] = booksHeader.map(() => ({ wch: 16 }));
     XLSX.utils.book_append_sheet(wb, booksWs, 'Books');
 
-    const salesHeader = ['id', 'bookId', 'bookName', 'qty', 'totalAmount', 'profit', 'date'];
-    const salesRows = sales.map(s => [
-      s.id, s.bookId, s.bookName || '', s.qty || 0,
-      s.totalAmount || 0, s.profit || 0, s.date || '',
-    ]);
+    const salesHeader = ['id', 'bookId', 'bookName', 'qty', 'totalAmount', 'profit', 'Date', 'Time'];
+    const salesRows = sales.map(s => {
+      const { date, time } = formatSplitDate(s.date || '');
+      return [
+        s.id, s.bookId, s.bookName || '', s.qty || 0,
+        s.totalAmount || 0, s.profit || 0, date, time
+      ];
+    });
     const salesWs = XLSX.utils.aoa_to_sheet([salesHeader, ...salesRows]);
     salesWs['!cols'] = salesHeader.map(() => ({ wch: 16 }));
     XLSX.utils.book_append_sheet(wb, salesWs, 'Sales');
 
-    const expensesHeader = ['id', 'type', 'amount', 'description', 'date'];
-    const expensesRows = expenses.map(e => [
-      e.id, e.type || '', e.amount || 0, e.description || '', e.date || '',
-    ]);
+    const expensesHeader = ['id', 'type', 'amount', 'description', 'Date', 'Time'];
+    const expensesRows = expenses.map(e => {
+      const { date, time } = formatSplitDate(e.date || '');
+      return [
+        e.id, e.type || '', e.amount || 0, e.description || '', date, time
+      ];
+    });
     const expensesWs = XLSX.utils.aoa_to_sheet([expensesHeader, ...expensesRows]);
     expensesWs['!cols'] = expensesHeader.map(() => ({ wch: 18 }));
     XLSX.utils.book_append_sheet(wb, expensesWs, 'Expenses');
@@ -78,16 +96,55 @@ export async function createBackup(): Promise<BackupResult> {
     lowStockWs['!cols'] = lowStockHeader.map(() => ({ wch: 18 }));
     XLSX.utils.book_append_sheet(wb, lowStockWs, 'Low Stock');
 
+    const restocksHeader = ['id', 'bookId', 'bookName', 'qtyAdded', 'Date', 'Time'];
+    const restocksRows = restocks.map(r => {
+      const { date, time } = formatSplitDate(r.date || '');
+      return [
+        r.id, r.bookId, r.bookName || '', r.qtyAdded || 0, date, time
+      ];
+    });
+    const restocksWs = XLSX.utils.aoa_to_sheet([restocksHeader, ...restocksRows]);
+    restocksWs['!cols'] = restocksHeader.map(() => ({ wch: 18 }));
+    XLSX.utils.book_append_sheet(wb, restocksWs, 'Restocks');
+
     const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
 
     const fileName = `BookInventory_Backup_${formatDate(new Date())}.xlsx`;
-    const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
-    await FileSystem.writeAsStringAsync(filePath, wbout, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
 
-    return { success: true, filePath, fileName, message: 'Backup created successfully' };
+    // Try SAF for Android first
+    if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
+      try {
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            permissions.directoryUri,
+            fileName,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          );
+          await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: 'base64' });
+          return { success: true, filePath: fileUri, fileName, message: 'Backup saved to selected folder' };
+        }
+      } catch (safError) {
+        console.warn('SAF failed, falling back to Sharing:', safError);
+      }
+    }
+
+    if (Platform.OS !== 'web' && baseDir) {
+      const filePath = `${baseDir}${fileName}`;
+      await FileSystem.writeAsStringAsync(filePath, wbout, {
+        encoding: 'base64',
+      });
+      return { success: true, filePath, fileName, message: 'Backup created successfully' };
+    }
+
+    try {
+      XLSX.writeFile(wb, fileName);
+      return { success: true, fileName, message: 'Backup downloaded successfully' };
+    } catch (e: any) {
+      throw new Error(`Storage unavailable and Web download failed.`);
+    }
   } catch (error: any) {
     return {
       success: false,

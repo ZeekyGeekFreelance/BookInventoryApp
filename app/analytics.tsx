@@ -9,10 +9,11 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Colors from "@/constants/colors";
 import { db, Sale, Expense } from "@/lib/db";
 
-type FilterType = "Today" | "Week" | "Month";
+type FilterType = "Today" | "Week" | "Month" | "Custom";
 type SortMode = "REVENUE" | "PROFIT" | "COUNT";
 type ViewMode = "SALES" | "EXPENSES";
 
@@ -45,6 +46,8 @@ export default function Analytics() {
   const [groupedExpenses, setGroupedExpenses] = useState<Record<string, GroupedExpense>>({});
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortMode>("REVENUE");
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const getFromDate = (f: FilterType): Date => {
     const now = new Date();
@@ -58,6 +61,8 @@ export default function Analytics() {
     } else if (f === "Month") {
       fromDate.setDate(1);
       fromDate.setHours(0, 0, 0, 0);
+    } else if (f === "Custom") {
+      return selectedDate;
     }
     return fromDate;
   };
@@ -105,7 +110,7 @@ export default function Analytics() {
       eGroups[type].entries.push(exp);
     });
     setGroupedExpenses(eGroups);
-  }, [filter]);
+  }, [filter, selectedDate]);
 
   useFocusEffect(
     useCallback(() => {
@@ -229,7 +234,7 @@ export default function Analytics() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={viewMode === "SALES" ? getSortedSales() : getSortedExpenses()}
+        data={(viewMode === "SALES" ? getSortedSales() : getSortedExpenses()) as any[]}
         keyExtractor={(item) => ("name" in item ? item.name : (item as GroupedExpense).type)}
         renderItem={viewMode === "SALES" ? renderSalesGroup : (renderExpenseGroup as any)}
         contentContainerStyle={styles.list}
@@ -245,7 +250,41 @@ export default function Analytics() {
                   <Text style={[styles.tabText, filter === t && styles.activeTabText]}>{t}</Text>
                 </TouchableOpacity>
               ))}
+              <TouchableOpacity
+                style={[styles.tab, filter === "Custom" && styles.activeTab, { flex: 0.8 }]}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Feather name="calendar" size={16} color={filter === "Custom" ? Colors.white : Colors.textSecondary} />
+              </TouchableOpacity>
             </View>
+
+            {filter === "Custom" && (
+              <View style={styles.dateLabelRow}>
+                <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
+                <Text style={styles.dateLabelText}>
+                  Showing for: {selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+                  <Text style={styles.changeDateText}>Change</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={selectedDate}
+                mode="date"
+                display="default"
+                maximumDate={new Date()}
+                onChange={(event, date) => {
+                  setShowDatePicker(false);
+                  if (date) {
+                    setSelectedDate(date);
+                    setFilter("Custom");
+                  }
+                }}
+              />
+            )}
 
             <View style={styles.statsGrid}>
               <View style={[styles.statCard, { borderLeftColor: Colors.blue }]}>
@@ -547,5 +586,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Inter_500Medium",
     color: Colors.textSecondary,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: Colors.textTertiary,
+  },
+  dateLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    gap: 6,
+  },
+  dateLabelText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.textSecondary,
+  },
+  changeDateText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.primary,
+    marginLeft: 4,
   },
 });

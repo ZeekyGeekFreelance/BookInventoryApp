@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BOOKS_KEY = '@bookshop_books';
 const SALES_KEY = '@bookshop_sales';
 const EXPENSES_KEY = '@bookshop_expenses';
+const RESTOCKS_KEY = '@bookshop_restocks';
 
 export interface Book {
   id: number;
@@ -13,6 +14,15 @@ export interface Book {
   costPrice: number;
   sellPrice: number;
   isbn: string;
+  lastStockedAt?: string;
+}
+
+export interface Restock {
+  id: number;
+  bookId: number;
+  bookName: string;
+  qtyAdded: number;
+  date: string;
 }
 
 export interface Sale {
@@ -59,12 +69,14 @@ export interface DashboardStats {
 let nextBookId = 1;
 let nextSaleId = 1;
 let nextExpenseId = 1;
+let nextRestockId = 1;
 
 async function loadIds() {
   try {
     const books = await getBooks();
     const sales = await getSales();
     const expenses = await getExpenses();
+    const restocks = await getRestocks();
     if (books.length > 0) {
       nextBookId = Math.max(...books.map(b => b.id)) + 1;
     }
@@ -74,10 +86,14 @@ async function loadIds() {
     if (expenses.length > 0) {
       nextExpenseId = Math.max(...expenses.map(e => e.id)) + 1;
     }
+    if (restocks.length > 0) {
+      nextRestockId = Math.max(...restocks.map(r => r.id)) + 1;
+    }
   } catch {
     nextBookId = 1;
     nextSaleId = 1;
     nextExpenseId = 1;
+    nextRestockId = 1;
   }
 }
 
@@ -122,6 +138,19 @@ async function saveExpenses(expenses: Expense[]): Promise<void> {
   await AsyncStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
 }
 
+async function getRestocks(): Promise<Restock[]> {
+  try {
+    const data = await AsyncStorage.getItem(RESTOCKS_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveRestocks(restocks: Restock[]): Promise<void> {
+  await AsyncStorage.setItem(RESTOCKS_KEY, JSON.stringify(restocks));
+}
+
 export const db = {
   async getAllBooks(): Promise<Book[]> {
     const books = await getBooks();
@@ -146,11 +175,16 @@ export const db = {
       });
   },
 
-  async addBook(book: Omit<Book, 'id'>): Promise<Book> {
+  async addBook(book: Omit<Book, 'id' | 'lastStockedAt'>): Promise<Book> {
     const books = await getBooks();
-    const newBook: Book = { ...book, id: nextBookId++ };
+    const now = new Date().toISOString();
+    const newBook: Book = { ...book, id: nextBookId++, lastStockedAt: now };
     books.push(newBook);
     await saveBooks(books);
+
+    // Also record as a restock
+    await this.recordRestock(newBook.id, newBook.name, newBook.stock, now);
+
     return newBook;
   },
 
@@ -171,10 +205,33 @@ export const db = {
   async updateStock(id: number, delta: number): Promise<void> {
     const books = await getBooks();
     const idx = books.findIndex(b => b.id === id);
+    const now = new Date().toISOString();
     if (idx !== -1) {
       books[idx].stock = Math.max(0, books[idx].stock + delta);
+      if (delta > 0) {
+        books[idx].lastStockedAt = now;
+        await this.recordRestock(id, books[idx].name, delta, now);
+      }
       await saveBooks(books);
     }
+  },
+
+  async recordRestock(bookId: number, bookName: string, qtyAdded: number, date: string): Promise<void> {
+    const restocks = await getRestocks();
+    const restock: Restock = {
+      id: nextRestockId++,
+      bookId,
+      bookName,
+      qtyAdded,
+      date,
+    };
+    restocks.push(restock);
+    await saveRestocks(restocks);
+  },
+
+  async getAllRestocks(): Promise<Restock[]> {
+    const restocks = await getRestocks();
+    return restocks.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   },
 
   async recordSale(bookId: number, qty: number, totalAmount: number, costPrice: number, bookName: string): Promise<void> {
@@ -273,9 +330,16 @@ export const db = {
 
   async getSalesFromDate(fromDate: string): Promise<Sale[]> {
     const sales = await getSales();
-    const from = new Date(fromDate).getTime();
+    const from = new Date(fromDate);
+    // Set to start of the day for filtering
+    const fromTime = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+    const endTime = fromTime + 86400000; // +1 day
+
     return sales
-      .filter(s => new Date(s.date).getTime() >= from)
+      .filter(s => {
+        const saleTime = new Date(s.date).getTime();
+        return saleTime >= fromTime && saleTime < endTime;
+      })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   },
 
@@ -284,18 +348,20 @@ export const db = {
     return books.filter(b => b.stock <= (b.targetStock || 3) || b.stock === 0);
   },
 
-  async getRawData(): Promise<{ books: Book[]; sales: Sale[]; expenses: Expense[] }> {
+  async getRawData(): Promise<{ books: Book[]; sales: Sale[]; expenses: Expense[]; restocks: Restock[] }> {
     const books = await getBooks();
     const sales = await getSales();
     const expenses = await getExpenses();
-    return { books, sales, expenses };
+    const restocks = await getRestocks();
+    return { books, sales, expenses, restocks };
   },
 
   async hasExistingData(): Promise<boolean> {
     const books = await getBooks();
     const sales = await getSales();
     const expenses = await getExpenses();
-    return books.length > 0 || sales.length > 0 || expenses.length > 0;
+    const restocks = await getRestocks();
+    return books.length > 0 || sales.length > 0 || expenses.length > 0 || restocks.length > 0;
   },
 
   async clearAllData(): Promise<void> {
@@ -303,17 +369,20 @@ export const db = {
       [BOOKS_KEY, '[]'],
       [SALES_KEY, '[]'],
       [EXPENSES_KEY, '[]'],
+      [RESTOCKS_KEY, '[]'],
     ]);
     nextBookId = 1;
     nextSaleId = 1;
     nextExpenseId = 1;
+    nextRestockId = 1;
   },
 
-  async restoreData(data: { books: Book[]; sales: Sale[]; expenses: Expense[] }): Promise<void> {
+  async restoreData(data: { books: Book[]; sales: Sale[]; expenses: Expense[]; restocks: Restock[] }): Promise<void> {
     await AsyncStorage.multiSet([
       [BOOKS_KEY, JSON.stringify(data.books || [])],
       [SALES_KEY, JSON.stringify(data.sales || [])],
       [EXPENSES_KEY, JSON.stringify(data.expenses || [])],
+      [RESTOCKS_KEY, JSON.stringify(data.restocks || [])],
     ]);
     await loadIds();
   },
@@ -322,7 +391,8 @@ export const db = {
     const books = await getBooks();
     const sales = await getSales();
     const expenses = await getExpenses();
-    return JSON.stringify({ books, sales, expenses, timestamp: new Date().toISOString() }, null, 2);
+    const restocks = await getRestocks();
+    return JSON.stringify({ books, sales, expenses, restocks, timestamp: new Date().toISOString() }, null, 2);
   },
 
   async importData(jsonStr: string): Promise<void> {
