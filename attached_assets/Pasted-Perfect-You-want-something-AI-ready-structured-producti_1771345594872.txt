@@ -1,0 +1,336 @@
+Perfect. You want something **AI-ready**, structured, production-grade, and conflict-free.
+Below is a **clean master prompt** you can paste into any AI IDE / code generator.
+
+It is written specifically for a **React Native + SQLite inventory app** like yours.
+
+---
+
+# ✅ AI-READY MASTER IMPLEMENTATION PROMPT
+
+---
+
+You are a senior React Native architect.
+
+I have a React Native (CLI, not Expo) Android app using:
+
+* SQLite for local database
+* react-native-fs for file system
+* xlsx (SheetJS) for Excel generation/parsing
+* react-native-share for sharing
+
+This is a **Book Inventory Management App** with:
+
+Tables:
+
+* books (id, name, author, isbn, costPrice, sellPrice, stock, targetStock)
+* sales (id, bookId, bookName, qty, totalAmount, profit, date)
+* expenses (id, type, amount, description, date)
+
+---
+
+# 🎯 PRIMARY REQUIREMENT (CRITICAL)
+
+Implement a **robust, production-ready Backup & Restore system** with:
+
+1. Full Excel export (multi-sheet structured workbook)
+2. Full Excel import (data restore)
+3. Overwrite confirmation protection
+4. Edge-case handling
+5. No data conflicts
+6. No release-build crashes
+7. Proper error handling everywhere
+
+Backup & Restore is the MOST IMPORTANT feature.
+It must be stable and safe.
+
+---
+
+# 📦 BACKUP (EXPORT TO EXCEL)
+
+Implement:
+
+## 1️⃣ Excel Workbook Structure
+
+Create a multi-sheet `.xlsx` file containing:
+
+### Sheet 1: Summary
+
+* Total books
+* Total stock
+* Stock value
+* Total sales revenue
+* Gross profit
+* Total expenses
+* Net profit
+* Profit margin
+* Total transactions
+* Low stock count
+
+### Sheet 2: Books
+
+All columns preserved:
+id, name, author, isbn, costPrice, sellPrice, stock, targetStock
+
+### Sheet 3: Sales
+
+id, bookId, bookName, qty, totalAmount, profit, date (ISO format)
+
+### Sheet 4: Expenses
+
+id, type (food, rent, fuel, etc.), amount, description, date (ISO)
+
+### Sheet 5: Low Stock Report
+
+Auto-generated (stock ≤ 3)
+
+---
+
+## 2️⃣ Export Requirements
+
+* File name format:
+  `BookInventory_Backup_YYYY-MM-DD_HH-mm.xlsx`
+
+* Save in:
+  `RNFS.DocumentDirectoryPath`
+
+* Handle:
+
+  * No data scenario
+  * Empty tables
+  * Corrupted DB
+  * Permission issues
+  * File write failure
+
+* Return structured response:
+
+```
+{
+  success: boolean,
+  filePath,
+  fileName,
+  message
+}
+```
+
+---
+
+# 📥 RESTORE (IMPORT FROM EXCEL)
+
+Implement:
+
+## 1️⃣ File Selection
+
+Use react-native-document-picker.
+
+Accept only:
+
+```
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+```
+
+---
+
+## 2️⃣ Overwrite Protection (CRITICAL)
+
+Before restoring:
+
+* Check if existing data exists.
+* If yes, show confirmation modal:
+
+"Restore will overwrite all current data. Continue?"
+
+Options:
+
+* Cancel
+* Overwrite & Restore
+
+---
+
+## 3️⃣ Restore Logic
+
+* Clear existing tables ONLY after confirmation
+* Validate:
+
+  * Required sheets exist
+  * Required columns exist
+  * Dates are valid
+  * Numbers are valid
+* Prevent duplicates
+* Wrap everything in a single DB transaction
+* If ANY error occurs → rollback
+
+Return:
+
+```
+{
+  success: boolean,
+  imported: {
+    books: { added, updated },
+    sales: { added },
+    expenses: { added }
+  },
+  errors: []
+}
+```
+
+---
+
+# 💰 SALES ANALYTICS (WITH EXPENSE MANAGEMENT)
+
+Implement:
+
+## 1️⃣ Expense Categories
+
+Allow adding:
+
+* Food
+* Rent
+* Fuel
+* Utilities
+* Misc
+
+Custom category allowed.
+
+## 2️⃣ Analytics Calculations
+
+Compute dynamically:
+
+* Total Sales Revenue
+* Gross Profit
+* Total Expenses
+* Net Profit = Gross Profit - Total Expenses
+* Profit Margin %
+* Monthly Sales Breakdown
+* Monthly Expense Breakdown
+* Top Selling Books
+* Low Stock Alerts
+
+Ensure calculations update after restore/import.
+
+---
+
+# 📤 ORDER SHARE (WHATSAPP TEXT SHARE)
+
+Fix and implement properly.
+
+Requirements:
+
+* Only selected books should be shared.
+* Generate clean textual order list like:
+
+```
+📚 Book Order List
+
+1. Atomic Habits - Qty: 3
+2. Clean Code - Qty: 2
+
+Total Items: 5
+Generated from Book Inventory App
+```
+
+Use:
+`react-native-share`
+
+For WhatsApp:
+
+* If installed → open directly
+* If not → fallback to system share sheet
+
+Ensure:
+
+* No crash if WhatsApp not installed
+* No crash if user cancels
+* Works in release build
+
+---
+
+# ⚠️ EDGE CASE HANDLING
+
+Handle:
+
+* Corrupted Excel
+* Missing sheets
+* Invalid column headers
+* Partial restore
+* File not found
+* Permission denied
+* Empty restore file
+* Duplicate IDs
+* Date parsing errors
+* Negative stock
+* Zero quantity sales
+
+Never allow silent failure.
+
+All errors must return structured responses.
+
+---
+
+# 🔐 RELEASE BUILD STABILITY
+
+Ensure:
+
+* No native module null errors
+* Proper try/catch everywhere
+* No unhandled promise rejections
+* Compatible with Hermes enabled
+* No Proguard conflicts
+* No unsafe async operations
+
+---
+
+# 🏗 ARCHITECTURE
+
+Provide:
+
+* backupService.js
+* restoreService.js
+* analyticsService.js
+* shareService.js
+
+Separation of concerns required.
+
+No logic inside UI components.
+
+---
+
+# 🚀 OUTPUT REQUIRED
+
+Generate:
+
+1. Clean modular production-ready code
+2. Proper comments
+3. Error-safe implementation
+4. Transaction-safe DB restore
+5. Minimal external dependencies
+6. Clear function contracts
+7. No deprecated libraries
+
+Avoid:
+
+* Expo-specific code
+* Deprecated APIs
+* Unsafe file encoding
+* Hardcoded paths
+* Blocking main thread
+
+---
+
+This system must be reliable enough for real business use.
+
+No conflicts. No unstable hacks.
+
+---
+
+# ✅ END OF PROMPT
+
+---
+
+If you want, next I can:
+
+* 🔍 Audit your current backup code
+* 🔥 Simplify your XLSX writing (you’re currently writing in ascii — risky)
+* 🛡 Fix release crash potential in your Excel write logic
+* ⚙ Design proper DB transaction-based restore logic for SQLite
+
+Tell me which direction we go next.
