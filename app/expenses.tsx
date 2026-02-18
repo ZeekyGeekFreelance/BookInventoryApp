@@ -14,6 +14,7 @@ import {
 import { useFocusEffect } from "expo-router";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Colors from "@/constants/colors";
 import { db, Expense, EXPENSE_CATEGORIES } from "@/lib/db";
 
@@ -22,8 +23,9 @@ export default function Expenses() {
   const [refreshing, setRefreshing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [form, setForm] = useState({ type: "Misc", amount: "", description: "" });
+  const [form, setForm] = useState({ type: "Misc", amount: "", description: "", date: new Date() });
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -42,7 +44,7 @@ export default function Expenses() {
 
   const openAddModal = () => {
     setEditingExpense(null);
-    setForm({ type: "Misc", amount: "", description: "" });
+    setForm({ type: "Misc", amount: "", description: "", date: new Date() });
     setShowAddModal(true);
   };
 
@@ -52,6 +54,7 @@ export default function Expenses() {
       type: expense.type,
       amount: expense.amount.toString(),
       description: expense.description,
+      date: new Date(expense.date),
     });
     setShowAddModal(true);
   };
@@ -70,13 +73,14 @@ export default function Expenses() {
           type: form.type,
           amount,
           description: form.description,
+          date: form.date.toISOString(),
         });
       } else {
         await db.addExpense({
           type: form.type,
           amount,
           description: form.description,
-          date: new Date().toISOString(),
+          date: form.date.toISOString(),
         });
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -212,7 +216,7 @@ export default function Expenses() {
         onRequestClose={() => setShowAddModal(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowAddModal(false)}>
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <Text style={styles.modalTitle}>
               {editingExpense ? "Edit Expense" : "Add Expense"}
             </Text>
@@ -247,6 +251,33 @@ export default function Expenses() {
               multiline
             />
 
+            <Text style={styles.inputLabel}>Date</Text>
+            <TouchableOpacity
+              style={styles.categorySelector}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+              <Text style={styles.categorySelectorText}>
+                {form.date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </Text>
+              <Feather name="edit-2" size={14} color={Colors.textTertiary} />
+            </TouchableOpacity>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={form.date}
+                mode="date"
+                display="default"
+                maximumDate={new Date()}
+                onChange={(event, date) => {
+                  setShowDatePicker(false);
+                  if (date) {
+                    setForm(p => ({ ...p, date }));
+                  }
+                }}
+              />
+            )}
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnCancel]}
@@ -274,7 +305,7 @@ export default function Expenses() {
         onRequestClose={() => setShowCategoryPicker(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowCategoryPicker(false)}>
-          <Pressable style={styles.modalView} onPress={() => {}}>
+          <Pressable style={styles.modalView} onPress={() => { }}>
             <Text style={styles.modalTitle}>Select Category</Text>
             {EXPENSE_CATEGORIES.map((cat) => (
               <TouchableOpacity

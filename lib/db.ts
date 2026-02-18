@@ -282,8 +282,13 @@ export const db = {
   async getExpensesFromDate(fromDate: string): Promise<Expense[]> {
     const expenses = await getExpenses();
     const from = new Date(fromDate).getTime();
+    if (isNaN(from)) return [];
+
     return expenses
-      .filter(e => new Date(e.date).getTime() >= from)
+      .filter(e => {
+        const expenseTime = new Date(e.date).getTime();
+        return !isNaN(expenseTime) && expenseTime >= from;
+      })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   },
 
@@ -328,17 +333,18 @@ export const db = {
     return sales.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 50);
   },
 
-  async getSalesFromDate(fromDate: string): Promise<Sale[]> {
+  async getSalesFromDate(fromDate: string, endDate?: string): Promise<Sale[]> {
     const sales = await getSales();
-    const from = new Date(fromDate);
-    // Set to start of the day for filtering
-    const fromTime = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
-    const endTime = fromTime + 86400000; // +1 day
+    const fromTime = new Date(fromDate).getTime();
+    if (isNaN(fromTime)) return [];
+
+    const endTime = endDate ? new Date(endDate).getTime() : Infinity;
+    const finalEndTime = isNaN(endTime) ? Infinity : endTime;
 
     return sales
       .filter(s => {
         const saleTime = new Date(s.date).getTime();
-        return saleTime >= fromTime && saleTime < endTime;
+        return !isNaN(saleTime) && saleTime >= fromTime && saleTime < finalEndTime;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   },

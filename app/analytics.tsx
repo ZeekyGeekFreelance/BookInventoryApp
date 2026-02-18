@@ -52,64 +52,88 @@ export default function Analytics() {
   const getFromDate = (f: FilterType): Date => {
     const now = new Date();
     const fromDate = new Date();
+    fromDate.setHours(0, 0, 0, 0); // Normalize to start of today by default
+
     if (f === "Today") {
-      fromDate.setHours(0, 0, 0, 0);
+      // already set to 00:00:00
     } else if (f === "Week") {
-      const day = now.getDay() || 7;
-      if (day !== 1) fromDate.setHours(-24 * (day - 1));
-      else fromDate.setHours(0, 0, 0, 0);
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+      fromDate.setDate(diff);
     } else if (f === "Month") {
       fromDate.setDate(1);
-      fromDate.setHours(0, 0, 0, 0);
     } else if (f === "Custom") {
-      return selectedDate;
+      const customDate = new Date(selectedDate);
+      customDate.setHours(0, 0, 0, 0);
+      return customDate;
     }
     return fromDate;
   };
 
   const loadData = useCallback(async () => {
-    const fromDate = getFromDate(filter);
+    try {
+      const fromDate = getFromDate(filter);
 
-    const salesData = await db.getSalesFromDate(fromDate.toISOString());
-    const expenseData = await db.getExpensesFromDate(fromDate.toISOString());
-
-    const totalRevenue = salesData.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
-    const grossProfit = salesData.reduce((acc, curr) => acc + (curr.profit || 0), 0);
-    const totalExpenses = expenseData.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-    const netProfit = grossProfit - totalExpenses;
-
-    setStats({
-      revenue: totalRevenue,
-      grossProfit,
-      totalExpenses,
-      netProfit,
-      salesCount: salesData.length,
-    });
-
-    const sGroups: Record<string, GroupedSale> = {};
-    salesData.forEach((sale) => {
-      const name = sale.bookName || "Unknown Book";
-      if (!sGroups[name]) {
-        sGroups[name] = { name, totalQty: 0, totalRevenue: 0, totalProfit: 0, transactions: [] };
+      // Safety check if getFromDate returns an invalid date
+      if (isNaN(fromDate.getTime())) {
+        console.warn("Analytics: Invalid date calculated", filter);
+        return;
       }
-      sGroups[name].totalQty += sale.qty || 0;
-      sGroups[name].totalRevenue += sale.totalAmount || 0;
-      sGroups[name].totalProfit += sale.profit || 0;
-      sGroups[name].transactions.push(sale);
-    });
-    setGroupedSales(sGroups);
 
-    const eGroups: Record<string, GroupedExpense> = {};
-    expenseData.forEach((exp) => {
-      const type = exp.type || "Misc";
-      if (!eGroups[type]) {
-        eGroups[type] = { type, total: 0, count: 0, entries: [] };
+      const fromDateStr = fromDate.toISOString();
+
+      let endDateStr: string | undefined;
+      if (filter === "Custom") {
+        const endDate = new Date(fromDate);
+        endDate.setDate(endDate.getDate() + 1);
+        if (!isNaN(endDate.getTime())) {
+          endDateStr = endDate.toISOString();
+        }
       }
-      eGroups[type].total += exp.amount || 0;
-      eGroups[type].count++;
-      eGroups[type].entries.push(exp);
-    });
-    setGroupedExpenses(eGroups);
+
+      const salesData = await db.getSalesFromDate(fromDateStr, endDateStr);
+      const expenseData = await db.getExpensesFromDate(fromDateStr);
+
+      const totalRevenue = salesData.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0);
+      const grossProfit = salesData.reduce((acc, curr) => acc + (curr.profit || 0), 0);
+      const totalExpenses = expenseData.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const netProfit = grossProfit - totalExpenses;
+
+      setStats({
+        revenue: totalRevenue,
+        grossProfit,
+        totalExpenses,
+        netProfit,
+        salesCount: salesData.length,
+      });
+
+      const sGroups: Record<string, GroupedSale> = {};
+      salesData.forEach((sale) => {
+        const name = sale.bookName || "Unknown Book";
+        if (!sGroups[name]) {
+          sGroups[name] = { name, totalQty: 0, totalRevenue: 0, totalProfit: 0, transactions: [] };
+        }
+        sGroups[name].totalQty += sale.qty || 0;
+        sGroups[name].totalRevenue += sale.totalAmount || 0;
+        sGroups[name].totalProfit += sale.profit || 0;
+        sGroups[name].transactions.push(sale);
+      });
+      setGroupedSales(sGroups);
+
+      const eGroups: Record<string, GroupedExpense> = {};
+      expenseData.forEach((exp) => {
+        const type = exp.type || "Misc";
+        if (!eGroups[type]) {
+          eGroups[type] = { type, total: 0, count: 0, entries: [] };
+        }
+        eGroups[type].total += exp.amount || 0;
+        eGroups[type].count++;
+        eGroups[type].entries.push(exp);
+      });
+      setGroupedExpenses(eGroups);
+    } catch (error) {
+      console.error("Analytics: Failed to load data", error);
+    }
   }, [filter, selectedDate]);
 
   useFocusEffect(
@@ -139,6 +163,19 @@ export default function Analytics() {
   const formatCurrency = (val: number) =>
     `₹${val.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
+  const formatDate = (dateValue: string | Date, type: 'time' | 'date') => {
+    try {
+      const d = new Date(dateValue);
+      if (isNaN(d.getTime())) return "Unknown";
+      if (type === 'time') {
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+      return d.toLocaleDateString();
+    } catch {
+      return "Unknown";
+    }
+  };
+
   const profitMargin = stats.revenue > 0
     ? ((stats.netProfit / stats.revenue) * 100).toFixed(1)
     : "0.0";
@@ -167,8 +204,7 @@ export default function Analytics() {
             {item.transactions.map((t, index) => (
               <View key={t.id || index} style={styles.transactionRow}>
                 <Text style={styles.tDate}>
-                  {new Date(t.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })},{" "}
-                  {new Date(t.date).toLocaleDateString()}
+                  {formatDate(t.date, 'time')}, {formatDate(t.date, 'date')}
                 </Text>
                 <View style={styles.tDetails}>
                   <Text style={styles.tQty}>Qty: {t.qty}</Text>
@@ -217,8 +253,7 @@ export default function Analytics() {
               <View key={e.id || index} style={styles.transactionRow}>
                 <View>
                   <Text style={styles.tDate}>
-                    {new Date(e.date).toLocaleDateString()}{" "}
-                    {new Date(e.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {formatDate(e.date, 'date')} {formatDate(e.date, 'time')}
                   </Text>
                   {e.description ? <Text style={styles.tQty}>{e.description}</Text> : null}
                 </View>
@@ -262,7 +297,7 @@ export default function Analytics() {
               <View style={styles.dateLabelRow}>
                 <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
                 <Text style={styles.dateLabelText}>
-                  Showing for: {selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  Showing for: {isNaN(selectedDate.getTime()) ? "---" : selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </Text>
                 <TouchableOpacity onPress={() => setShowDatePicker(true)}>
                   <Text style={styles.changeDateText}>Change</Text>
